@@ -18,7 +18,82 @@ set.seed(12345)
 
 # data cleaning ----
 
-# need to remove the samples that failed intial QC and post sequencing QC
+meta <- meta[, 1:3]
+colnames(meta) <- c("group", "drug", "run")
+meta <- meta[, c("run", "group", "drug")]
+
+meta <- as.data.frame(na.omit(meta))
+
+rownames(meta) <- meta[, 1]
+
+# if we are going to do this all with mgi need to ensure there are no duplicates
+counts <- dat[,-c(1,2,4)]
+
+counts <- counts %>%
+  group_by(external_gene_name) %>%
+  summarise(across(where(is.numeric), \(x) sum(x, na.rm = TRUE))) %>%
+  ungroup()
+
+sum(duplicated(counts$external_gene_name))
+
+counts <- as.data.frame(counts)
+rownames(counts) <- counts$external_gene_name
+counts <- counts[,-1]
+  
+#filter colnames to match metadata
+colnames(counts) <- sub("^.*?-", "", colnames(counts))
+
+## Dealing with the sample renames: ----------
+# the sample id changes by the core listed
+#
+# GA-2 -> GA-29
+# GA-4 -> GA-30
+# GA-6 -> GA-31
+# GA-9 -> GA-32
+# GA-17 -> GA-33
+
+# I will reverse the naming conventions applied to the counts data so that it
+# matches the original metdata
+current <- NULL
+for (i in 29:33) {
+  current <- c(current, sprintf("GA-%i", i))
+}
+revert <- c("GA-2", "GA-4", "GA-6", "GA-9", "GA-17")
+
+colnames(counts)[colnames(counts) %in% current] <- revert
+
+# we need to order the rownames and colnames in the same order
+
+counts <- counts[, order(as.numeric(sub("GA-", "", colnames(counts))))]
+
+meta <- meta[order(as.numeric(sub("GA-", "", rownames(counts)))), ]
+meta <- na.omit(meta)
+
+#now let's rerun differences and see where we are at
+
+colset <- colnames(counts)
+rowset <- rownames(meta)
+
+diff1 <- base::setdiff(colset, rowset) # all elements in counts can be found in meta
+diff2 <- base::setdiff(rowset, colset) # there is extra metadata
+
+# Combine the differences
+all_differences <- base::union(diff1, diff2)
+all_differences # should be 3,13,15,24 which all need to be removed from the metadata
+
+meta <- meta[!rownames(meta) %in% all_differences, ] # removes extra metadata for non-existant samples
+
+meta_grouped <- meta 
+meta_grouped$treatment <- paste(meta_grouped$group,meta_grouped$drug, sep = "_")  
+
+meta_grouped <- meta_grouped |> 
+  dplyr::filter(drug != "47") |> 
+  select(treatment)
+
+counts <- counts[,colnames(counts) %in% rownames(meta_grouped)]
+
+counts <- as.matrix(counts)
+meta_grouped <- as.matrix(meta_grouped)
 
 # data organization ----
 
@@ -40,16 +115,19 @@ if (all(dir.exists(directories)) != TRUE) {
 
 # Run DESeq2 ------
 
-smallestGroupSize <- 5
+dds  <-  DESeqDataSetFromMatrix(countData=counts,
+                                colData=meta_grouped,
+                                design= ~ treatment)
+smallestGroupSize <- 4
 dds <- dds[rowSums(counts(dds) >= 10) >= smallestGroupSize, ]
 
 dds <- DESeq(dds)
 
 saveRDS(dds,"./results/dds.rds")
 
+dds <- readRDS("./results/dds.rds")
 
 # Extracting results ----
-
 
 results_dds_names <- resultsNames(dds)[-(resultsNames(dds) == "Intercept")]
 
@@ -57,8 +135,14 @@ res_list <- map(results_dds_names, ~ results(dds, name = .x))
 
 names(res_list) <- results_dds_names
 
-enes_annot <- as.data.frame(genes_annot)
-rownames(genes_annot) <- genes_annot$mgi_symbol
+genes_annot <- dat |> 
+  select(external_gene_name,description) |> 
+  distinct(external_gene_name, .keep_all = TRUE)
+
+genes_annot <- as.data.frame(genes_annot)
+
+rownames(genes_annot) <- genes_annot$external_gene_name
+genes_annot <- genes_annot[,-1, drop = FALSE]
 
 # raw
 paths <- paste0("./results/data/", results_dds_names, ".csv")
@@ -67,12 +151,6 @@ tmp <- map(
   ~ merge(as.data.frame(.x), genes_annot, by = 'row.names', all = FALSE)
 )
 walk2(tmp, paths, write.csv)
-test <- merge(
-  as.data.frame(res_list[[1]]),
-  genes_annot,
-  by = 'row.names',
-  all = FALSE
-)
 
 #filtered
 res_list_filtered <- map(res_list, ~ .x[.x$padj < 0.05 & !is.na(.x$padj), ])
