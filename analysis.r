@@ -88,7 +88,7 @@ meta_grouped$treatment <- paste(meta_grouped$group,meta_grouped$drug, sep = "_")
 
 meta_grouped <- meta_grouped |> 
   dplyr::filter(drug != "47") |> 
-  select(treatment)
+  dplyr::select(treatment)
 
 counts <- counts[,colnames(counts) %in% rownames(meta_grouped)]
 
@@ -112,7 +112,10 @@ if (all(dir.exists(directories)) != TRUE) {
   }
 }
 
-
+#TODO:
+##  MISSING STEP WITH RELVELING THE METADATA TO MAKE THE CONTROL THE START POINT
+## Then need to format this so it runs with both levels that I want at reference
+## ideally without copying a bunch of code
 # Run DESeq2 ------
 
 dds  <-  DESeqDataSetFromMatrix(countData=counts,
@@ -125,7 +128,7 @@ dds <- DESeq(dds)
 
 saveRDS(dds,"./results/dds.rds")
 
-dds <- readRDS("./results/dds.rds")
+# dds <- readRDS("./results/dds.rds")
 
 # Extracting results ----
 
@@ -136,7 +139,7 @@ res_list <- map(results_dds_names, ~ results(dds, name = .x))
 names(res_list) <- results_dds_names
 
 genes_annot <- dat |> 
-  select(external_gene_name,description) |> 
+  dplyr::select(external_gene_name,description) |> 
   distinct(external_gene_name, .keep_all = TRUE)
 
 genes_annot <- as.data.frame(genes_annot)
@@ -289,7 +292,7 @@ ggsave('results/basic_PCA.jpg', plot = PCA, width = 15, height = 15)
 # - ontology csv
 # - dotplot
 
-gsea_util <- function(result, names, ont = "BP", x = 1) {
+gsea_util <- function(result, name, ont = "BP", x = 1) {
   tmp <- as.data.frame(result)
   tmp <- tmp |>
     arrange(desc(log2FoldChange))
@@ -320,17 +323,17 @@ gsea_util <- function(result, names, ont = "BP", x = 1) {
   
   saveRDS(gse, str_glue("./results/GSEA/{name}.rds"))
   
-  write.csv(gse@result, "./Results/GSEA/{name}.csv")
+  write.csv(gse@result, str_glue("./Results/GSEA/{name}.csv"))
   
   png(
-    "Results/GSEA/dotplot_{name}.png",
+    str_glue("Results/GSEA/dotplot_{name}.png"),
     width = 800,
     height = 800,
     units = "px",
     pointsize = 12
   )
-  print(dotplot(gse, showCategory = 15, x = "NES"))
+  print(dotplot(gse, showCategory = 25, x = "NES"))
   dev.off()
 }
 
-walk2(res_list, res_dds_list, ~ gsea_util(.x, .y, x = 12))
+walk2(res_list, results_dds_names, ~ gsea_util(.x, .y, x = 12))
