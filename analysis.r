@@ -27,7 +27,7 @@ meta <- as.data.frame(na.omit(meta))
 rownames(meta) <- meta[, 1]
 
 # if we are going to do this all with mgi need to ensure there are no duplicates
-counts <- dat[,-c(1,2,4)]
+counts <- dat[, -c(1, 2, 4)]
 
 counts <- counts %>%
   group_by(external_gene_name) %>%
@@ -38,8 +38,8 @@ sum(duplicated(counts$external_gene_name))
 
 counts <- as.data.frame(counts)
 rownames(counts) <- counts$external_gene_name
-counts <- counts[,-1]
-  
+counts <- counts[, -1]
+
 #filter colnames to match metadata
 colnames(counts) <- sub("^.*?-", "", colnames(counts))
 
@@ -83,14 +83,18 @@ all_differences # should be 3,13,15,24 which all need to be removed from the met
 
 meta <- meta[!rownames(meta) %in% all_differences, ] # removes extra metadata for non-existant samples
 
-meta_grouped <- meta 
-meta_grouped$treatment <- paste(meta_grouped$group,meta_grouped$drug, sep = "_")  
+meta_grouped <- meta
+meta_grouped$treatment <- paste(
+  meta_grouped$group,
+  meta_grouped$drug,
+  sep = "_"
+)
 
-meta_grouped <- meta_grouped |> 
-  dplyr::filter(drug != "47") |> 
+meta_grouped <- meta_grouped |>
+  dplyr::filter(drug != "XIB4035") |>
   dplyr::select(treatment)
 
-counts <- counts[,colnames(counts) %in% rownames(meta_grouped)]
+counts <- counts[, colnames(counts) %in% rownames(meta_grouped)]
 
 counts <- as.matrix(counts)
 meta_grouped <- as.matrix(meta_grouped)
@@ -118,15 +122,17 @@ if (all(dir.exists(directories)) != TRUE) {
 ## ideally without copying a bunch of code
 # Run DESeq2 ------
 
-dds  <-  DESeqDataSetFromMatrix(countData=counts,
-                                colData=meta_grouped,
-                                design= ~ treatment)
+dds <- DESeqDataSetFromMatrix(
+  countData = counts,
+  colData = meta_grouped,
+  design = ~treatment
+)
 smallestGroupSize <- 4
 dds <- dds[rowSums(counts(dds) >= 10) >= smallestGroupSize, ]
 
 dds <- DESeq(dds)
 
-saveRDS(dds,"./results/dds.rds")
+saveRDS(dds, "./results/dds.rds")
 
 # dds <- readRDS("./results/dds.rds")
 
@@ -138,14 +144,14 @@ res_list <- map(results_dds_names, ~ results(dds, name = .x))
 
 names(res_list) <- results_dds_names
 
-genes_annot <- dat |> 
-  dplyr::select(external_gene_name,description) |> 
+genes_annot <- dat |>
+  dplyr::select(external_gene_name, description) |>
   distinct(external_gene_name, .keep_all = TRUE)
 
 genes_annot <- as.data.frame(genes_annot)
 
 rownames(genes_annot) <- genes_annot$external_gene_name
-genes_annot <- genes_annot[,-1, drop = FALSE]
+genes_annot <- genes_annot[, -1, drop = FALSE]
 
 # raw
 paths <- paste0("./results/data/", results_dds_names, ".csv")
@@ -187,7 +193,7 @@ res_workable <- list()
 for (i in 1:length(res_list_filtered)) {
   tmp <- as.data.frame(res_list_filtered[[i]])
   tmp <- merge(tmp, genes_annot, by = 'row.names', all = FALSE)
-  
+
   tmp <- tmp |>
     mutate(
       dir = case_when(
@@ -197,7 +203,7 @@ for (i in 1:length(res_list_filtered)) {
       )
     ) |>
     arrange(desc(log2FoldChange))
-  
+
   res_workable[[i]] <- tmp
 }
 
@@ -209,7 +215,7 @@ volcano_annot <- genes_annot[, -2, drop = FALSE]
 
 volcano_dds <- function(x, y, ...) {
   tmp = merge(as.data.frame(x), volcano_annot, by = 'row.names', all = FALSE)
-  
+
   png(
     sprintf("results/Volcano/%s_.png", y),
     width = 800,
@@ -235,7 +241,7 @@ walk2(res_list, results_dds_names, ~ volcano_dds(.x, .y, volcano_annot))
 rld_all <- rlog(dds, blind = FALSE)
 rld_all_df <- as.data.frame(assay(rld_all))
 
-intgroup = "treatment" 
+intgroup = "treatment"
 
 PCA_plot_all <- DESeq2::plotPCA(
   rld_all,
@@ -296,16 +302,16 @@ gsea_util <- function(result, name, ont = "BP", x = 1) {
   tmp <- as.data.frame(result)
   tmp <- tmp |>
     arrange(desc(log2FoldChange))
-  
+
   list <- tmp$log2FoldChange
   names(list) <- rownames(tmp)
-  
+
   bp_param <- SnowParam(
     workers = x,
     type = "SOCK",
     RNGseed = 42,
   )
-  
+
   gse <- gseGO(
     geneList = list,
     ont = ont,
@@ -320,11 +326,11 @@ gsea_util <- function(result, name, ont = "BP", x = 1) {
     by = "fgsea",
     BPPARAM = bp_param
   )
-  
+
   saveRDS(gse, str_glue("./results/GSEA/{name}.rds"))
-  
+
   write.csv(gse@result, str_glue("./Results/GSEA/{name}.csv"))
-  
+
   png(
     str_glue("Results/GSEA/dotplot_{name}.png"),
     width = 800,
