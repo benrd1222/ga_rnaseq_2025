@@ -85,6 +85,7 @@ all_differences # should be 3,13,15,24 which all need to be removed from the met
 meta <- meta[!rownames(meta) %in% all_differences, ] # removes extra metadata for non-existant samples
 
 meta_grouped <- meta
+<<<<<<< HEAD
 meta_grouped$treatment <- base::as.factor(paste(
   meta_grouped$group,
   meta_grouped$drug,
@@ -93,6 +94,16 @@ meta_grouped$treatment <- base::as.factor(paste(
 
 meta_grouped <- meta_grouped |>
   dplyr::filter(drug != "47") |>
+=======
+meta_grouped$treatment <- paste(
+  meta_grouped$group,
+  meta_grouped$drug,
+  sep = "_"
+)
+
+meta_grouped <- meta_grouped |>
+  dplyr::filter(drug != "XIB4035") |>
+>>>>>>> cf6582645575954da789f2c3a62bd65b4dd237b0
   dplyr::select(treatment)
 
 counts <- counts[, colnames(counts) %in% rownames(meta_grouped)]
