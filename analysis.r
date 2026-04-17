@@ -4,13 +4,12 @@ library(DESeq2)
 library(tidyverse)
 library(EnhancedVolcano)
 library("org.Mm.eg.db")
-#library("biomaRt")
 library(circlize)
 library(gridtext)
 library(clusterProfiler)
 library(BiocParallel)
 library(writexl)
-#library(VennDiagram)
+library(enrichplot)
 
 dat <- read_delim("./data/gaston_counts.txt")
 meta <- readxl::read_xlsx("./data/gaston_metadata.xlsx")
@@ -84,13 +83,13 @@ all_differences # should be 3,13,15,24 which all need to be removed from the met
 
 meta <- meta[!rownames(meta) %in% all_differences, ] # removes extra metadata for non-existant samples
 
-meta_grouped <- meta_grouped |>
-  dplyr::filter(drug != "47") |>
-  meta_grouped$treatment <- paste(
+meta_grouped <- meta
+
+meta_grouped$treatment <- base::as.factor(paste(
   meta_grouped$group,
   meta_grouped$drug,
   sep = "_"
-)
+))
 
 meta_grouped <- meta_grouped |>
   dplyr::filter(drug != "XIB4035") |>
@@ -119,7 +118,9 @@ directories <- c(
   "./results/data",
   "./results/volcano",
   "./results/GSEA",
-  "./results/oras"
+  "./results/oras",
+  "./results/oras/emap",
+  "./results/oras/cnet"
 )
 
 if (all(dir.exists(directories)) != TRUE) {
@@ -130,10 +131,6 @@ if (all(dir.exists(directories)) != TRUE) {
   }
 }
 
-#TODO:
-##  MISSING STEP WITH RELVELING THE METADATA TO MAKE THE CONTROL THE START POINT
-## Then need to format this so it runs with both levels that I want at reference
-## ideally without copying a bunch of code
 # Run DESeq2 ------
 
 dds_con <- DESeqDataSetFromMatrix(
@@ -146,7 +143,7 @@ dds_con <- dds_con[rowSums(counts(dds_con) >= 10) >= smallestGroupSize, ]
 
 dds_con <- DESeq(dds_con)
 
-saveRDS(dds_con, "./results/dds_con.rds")
+#saveRDS(dds_con, "./results/dds_con.rds")
 
 # with cisplatin as reference level
 dds_cis <- DESeqDataSetFromMatrix(
@@ -158,7 +155,7 @@ dds_cis <- dds_cis[rowSums(counts(dds_cis) >= 10) >= smallestGroupSize, ]
 
 dds_cis <- DESeq(dds_cis)
 
-saveRDS(dds_cis, "./results/dds_cis.rds")
+# saveRDS(dds_cis, "./results/dds_cis.rds")
 
 # Need to essentially run everything below twice...
 list_dds <- list(dds_con, dds_cis)
@@ -268,7 +265,12 @@ ora_util <- function(dat, map, cut = 1) {
     pAdjustMethod = "BH"
   )
 
-  out <- list("up" = ora_up, "down" = ora_down)
+  out <- list(
+    "up" = ora_up,
+    "down" = ora_down,
+    "degs_up" = degs_up,
+    "degs_down" = degs_down
+  )
   return(out)
 }
 
@@ -307,13 +309,57 @@ ORA_bar <- function(ora, top = 20, color = "sandybrown") {
 }
 
 call_plot <- function(ora, name) {
-  for (i in 1:2) {
-    ORA_bar(ora$up)
-    ggsave(str_glue("./results/oras/{name}_ora_up.png"), bg = "white")
+  ORA_bar(ora$up)
+  ggsave(str_glue("./results/oras/{name}_ora_up.png"), bg = "white")
 
-    ORA_bar(ora$down)
-    ggsave(str_glue("./results/oras/{name}_ora_down.png"), bg = "white")
-  }
+  try(
+    {
+      ora_up_sim <- pairwise_termsim(ora$up)
+      emapplot(ora_up_sim)
+      ggsave(
+        str_glue("./results/oras/emap/{name}_enrichment_map_up.png"),
+        bg = "white"
+      )
+    },
+    silent = TRUE
+  )
+
+  try(
+    {
+      cnetplot(ora$up, categorySizeBy = ~itemNum, foldChange = ora$degs_up)
+      ggsave(
+        str_glue("./results/oras/cnet/{name}_cnetplot_up.png"),
+        bg = "white"
+      )
+    },
+    silent = TRUE
+  )
+
+  ORA_bar(ora$down, color = "dodgerblue")
+  ggsave(str_glue("./results/oras/{name}_ora_down.png"), bg = "white")
+
+  try(
+    {
+      ora_down_sim <- pairwise_termsim(ora$down)
+      emapplot(ora_down_sim)
+      ggsave(
+        str_glue("./results/oras/emap/{name}_enrichment_map_down.png"),
+        bg = "white"
+      )
+    },
+    silent = TRUE
+  )
+
+  try(
+    {
+      cnetplot(ora$down, categorySizeBy = ~itemNum, foldChange = ora$degs_down)
+      ggsave(
+        str_glue("./results/oras/cnet/{name}_cnetplot_down.png"),
+        bg = "white"
+      )
+    },
+    silent = TRUE
+  )
 }
 
 convert_export_ora <- function(ora_list) {
