@@ -169,7 +169,7 @@ svobj <- svaseq(dat_sur, mod, mod0, n.sv = n.sv)
 
 # Update design to include the SVs
 dds_con[["SV1"]] <- svobj$sv[, 1]
-# dds_con[["SV2"]] <- svobj$sv[, 2]
+dds_con[["SV2"]] <- svobj$sv[, 2]
 cor(dds_con$SV1, as.numeric(counts(dds_con["Tnnt3", ], normalized = TRUE)))
 # Myh4, Ckm, Tnnt3 are all highly correlated with SV1 around 0.7
 # therefore I believe SV1 will account for the noise of muscle contamination well
@@ -180,7 +180,7 @@ cor(dds_con$SV1, as.numeric(counts(dds_con["Tnnt3", ], normalized = TRUE)))
 # core sample reruns. SV1 is clearly associated with muscle contam so we
 # can see if SV2 will correct for any batch effect
 
-design(dds_con) <- formula("~ treatment + SV1")
+design(dds_con) <- formula("~ treatment + SV1 + SV2")
 
 dds_con <- DESeq(dds_con)
 
@@ -211,10 +211,11 @@ svobj <- svaseq(dat_sur, mod, mod0, n.sv = n.sv)
 
 # Update design to include the SVs
 dds_cis[["SV1"]] <- svobj$sv[, 1]
+dds_cis[["SV2"]] <- svobj$sv[, 2]
 cor(dds_cis$SV1, as.numeric(counts(dds_cis["Tnnt3", ], normalized = TRUE)))
 # should be the same just a different reference level
 
-design(dds_cis) <- formula("~ treatment + SV1")
+design(dds_cis) <- formula("~ treatment + SV1 + SV2")
 
 dds_cis <- DESeq(dds_cis)
 
@@ -443,8 +444,10 @@ convert_export_ora <- function(ora_list) {
   return(out)
 }
 
+# Body of exploratory analysis ----
+
 for (dds in list_dds) {
-  # Extracting results ----
+  ## Extracting results ----
 
   results_dds_names <- resultsNames(dds)[-(resultsNames(dds) == "Intercept")]
   results_dds_names <- results_dds_names[!grepl("SV\\d", results_dds_names)]
@@ -511,13 +514,13 @@ for (dds in list_dds) {
 
   names(res_workable) <- results_dds_names
 
-  #Volcano Plots:
+  ## Volcano Plots: ----
 
   volcano_annot <- genes_annot[, -2, drop = FALSE]
 
   walk2(res_list, results_dds_names, ~ volcano_dds(.x, .y, volcano_annot))
 
-  # Clustering -------
+  ## Clustering -------
 
   # for PCAs we need normalized counts and not LFC
   rld_all <- rlog(dds, blind = FALSE)
@@ -566,13 +569,13 @@ for (dds in list_dds) {
 
   ggsave('results/basic_PCA.jpg', plot = PCA, width = 15, height = 15)
 
-  # GSEAs -----------
+  ## GSEAs -----------
 
   #TODO: gsea_util crashes if there are no significant groupings
   # could throw a try catch around it
-  #walk2(res_list, results_dds_names, ~ gsea_util(.x, .y, x = 12))
+  walk2(res_list, results_dds_names, ~ gsea_util(.x, .y, x = 12))
 
-  # ORAs -------
+  ## ORAs -------
 
   map <- rownames(counts)
   ora_list <- map(res_list_filtered, ~ ora_util(as.data.frame(.x), map))
@@ -606,6 +609,8 @@ select <- order(
   decreasing = TRUE
 )[1:50]
 
+# leaving this as an example of how to create heatmaps
+
 df <- base::as.data.frame(colData(dds_con)[, c("treatment")])
 df <- data.frame(treatment = colData(dds_con)$treatment)
 rownames(df) <- colnames(dds_con)
@@ -618,76 +623,6 @@ pheatmap(
   annotation_col = df
 )
 
-
-# this row means version is just showing the highest difference, in the genes with the most abundant counts
-
-# We can pull a visualize the genes with the most change in overexpression
-# and under expression
-
-# over and under expression heat maps ----
-# I am ordering top changed by the cisplatin_47 vs Cisplatin treatment
-res <- read.csv(
-  "./results/data/treatment_CISPLATIN_47_vs_CISPLATIN_Vehicle.csv"
-)
-select <- res |>
-  arrange(log2FoldChange) |>
-  dplyr::select(Row.names)
-
-select_downregulated <- as.vector(select[1:50, ])
-select_upregulated <- as.vector(select[nrow(select) - 50:nrow(df), ])
-
-
-# the scale = row option allows us to z-score the heatmap to show the change in
-# genes count by standard deviations away from the mean count of the gene.
-# I think this better highlights the differences when zooming in on these
-
-pheatmap(
-  assay(rld_all)[select_downregulated, ],
-  cluster_rows = FALSE,
-  show_rownames = TRUE,
-  cluster_cols = FALSE,
-  scale = "row",
-  annotation_col = df
-)
-
-pheatmap(
-  assay(rld_all)[select_upregulated, ],
-  cluster_rows = FALSE,
-  show_rownames = TRUE,
-  cluster_cols = FALSE,
-  scale = "row",
-  annotation_col = df
-)
-
-# Cisplatin vs Control ----
-
-res <- read.csv(
-  "./results/data/treatment_CISPLATIN_Vehicle_vs_CONTROL_Vehicle.csv"
-)
-select <- res |>
-  arrange(log2FoldChange) |>
-  dplyr::select(Row.names)
-
-select_downregulated <- as.vector(select[1:50, ])
-select_upregulated <- as.vector(select[nrow(select) - 50:nrow(df), ])
-
-pheatmap(
-  assay(rld_all)[select_downregulated, ],
-  cluster_rows = FALSE,
-  show_rownames = TRUE,
-  cluster_cols = FALSE,
-  scale = "row",
-  annotation_col = df
-)
-
-pheatmap(
-  assay(rld_all)[select_upregulated, ],
-  cluster_rows = FALSE,
-  show_rownames = TRUE,
-  cluster_cols = FALSE,
-  scale = "row",
-  annotation_col = df
-)
 
 # Lastly I want to organize a few heatmaps and tables from the dds results by the
 # story outlined by the GO terms
@@ -728,15 +663,15 @@ ora_list <- list(ora_6, ora_5, ora_4, ora_3, ora_2, ora_1)
 
 # grab the rows that match a grepl query
 
-q1 <- "erythrocyte"
-q2 <- "leukocyte|myeloid"
-q3 <- "neutrophil|humoral immune"
-q4 <- "defense|defense response|interferon|innate immune|killing"
-q5 <- "metabolic|catabolic|lipid|thermo"
-q6 <- "interleukin"
-q7 <- "synapse"
+query_vector <- c(
+  "erythrocyte",
+  "myeloid|leukocyte|neutrophil|monocyte|basophil|eosinophil",
+  "defense|defense response|interferon|innate immune|killing",
+  "metabolic|catabolic|lipid|thermo",
+  "interleukin",
+  "synapse"
+)
 
-query_vector <- c(q1, q2, q3, q4, q5, q6, q7)
 # for each ora in my list, run through query for each query in list, add genes,
 # to vector/. Save the unique entries of vector to list for same length as number
 # of queries
@@ -788,6 +723,7 @@ for (i in 1:length(data_names)) {
 # from the control state
 
 tab_list <- list()
+lfc_cutoff <- 0.58 # we only have 4 samples per group so we may want to update this to 1 if the results feel unreliable
 
 for (i in 1:length(query_vector)) {
   # make a heatmap and a table
@@ -845,13 +781,15 @@ for (i in 1:length(query_vector)) {
     relocate(L2FC_CISPLATIN_Vehicle, .after = Gene) |>
     mutate(
       Group = case_when(
-        L2FC_CISPLATIN_Vehicle >= 0.5 & L2FC_CISPLATIN_47 < 0.5 ~
+        L2FC_CISPLATIN_Vehicle >= lfc_cutoff & L2FC_CISPLATIN_47 < lfc_cutoff ~
           "Effects Cisplatin UP with Cisplatin and 47 opposite",
-        L2FC_CISPLATIN_Vehicle <= -0.5 & L2FC_CISPLATIN_47 > -0.5 ~
+        L2FC_CISPLATIN_Vehicle <= -lfc_cutoff &
+          L2FC_CISPLATIN_47 > -lfc_cutoff ~
           "Effects Cisplatin DOWN with Cisplatin and 47 opposite",
-        L2FC_CISPLATIN_Vehicle < 0.5 & L2FC_CISPLATIN_47 >= 0.5 ~
+        L2FC_CISPLATIN_Vehicle < lfc_cutoff & L2FC_CISPLATIN_47 >= lfc_cutoff ~
           "Effects Cisplatin and 47 UP with Cisplatin opposite",
-        L2FC_CISPLATIN_Vehicle > -0.5 & L2FC_CISPLATIN_47 <= -0.5 ~
+        L2FC_CISPLATIN_Vehicle > -lfc_cutoff &
+          L2FC_CISPLATIN_47 <= -lfc_cutoff ~
           "Effects Cisplatin and 47 DOWN with Cisplatin opposite",
         TRUE ~ NA
       )
@@ -883,9 +821,9 @@ for (i in 1:length(query_vector)) {
     data_color(
       columns = starts_with("L2FC"),
       fn = scales::col_bin(
-        palette = c("#3B6895", "#9FCAE6", "#f7f7f7", "#f4a582", "#d73027"),
+        palette = rev(brewer.pal(n = 6, "RdBu")),
         domain = c(-5, 5),
-        bins = c(-Inf, -2, -0.5, 0.5, 2, Inf)
+        bins = c(-Inf, -2, -1, -0.57, 0.57, 1, 2, Inf)
       )
     ) |>
     opt_stylize(color = "gray", style = 1)
@@ -900,29 +838,8 @@ for (i in 1:length(query_vector)) {
 # * some specific to DRG's or cisplatin
 
 # decided to try and use a biplot to see if I can match some of the top explanatory
-# genes from the pca
+# genes from the pca additionally corrected it for the SV1
 
-# the biplot has not had the correction for the muscle contamination applied
-# and so we can see the clear grouping of muscle genes in the third quadrant
-
-library(PCAtools)
-
-mat <- assay(rld_all)
-
-p <- pca(mat, metadata = colData(rld_all), removeVar = 0.1)
-
-PCAtools::biplot(
-  p,
-  showLoadings = TRUE,
-  ntopLoadings = 10,
-  colby = 'treatment',
-  labSize = 3,
-  legendPosition = 'right'
-)
-
-ggsave("./results/biplot.png")
-
-# corrected pca
 library(limma)
 
 vsd <- vst(dds_con, blind = FALSE)
@@ -953,3 +870,93 @@ PCAtools::biplot(
 )
 
 ggsave("./results/biplot.png")
+
+# Comparison tables ----
+tab <- data.frame(`Row.names` = rownames(counts))
+lfc_colnames <- c()
+for (j in 1:length(data_list)) {
+  data <- data_list[[j]] |>
+    dplyr::select(`Row.names`, log2FoldChange)
+  tab <- left_join(tab, data, by = "Row.names")
+
+  tmp <- str_extract(data_names[j], "(?<=_).*(?=_vs)")
+  lfc_colnames[j] <- str_glue("L2FC_{tmp}")
+}
+colnames(tab) <- c("Gene", lfc_colnames)
+
+# The NA's represent where there was no significant difference from
+# control. I am turning them to zeros to simplify the coloring of the table
+# technically all of the 0's could just need a larger sample size
+# so we cannot say that these were normalized but we can say that
+# in an instance where the gene is upregulated by cisplatin and cis.47 is not
+# different from the control it could be normalized
+
+tab[is.na(tab)] <- 0
+
+gt_table <- tab |>
+  relocate(L2FC_CISPLATIN_Vehicle, .after = Gene) |>
+  mutate(
+    Group = case_when(
+      L2FC_CISPLATIN_Vehicle >= lfc_cutoff & L2FC_CISPLATIN_47 < lfc_cutoff ~
+        "Effects Cisplatin UP with Cisplatin and 47 opposite",
+      L2FC_CISPLATIN_Vehicle <= -lfc_cutoff & L2FC_CISPLATIN_47 > -lfc_cutoff ~
+        "Effects Cisplatin DOWN with Cisplatin and 47 opposite",
+      L2FC_CISPLATIN_Vehicle < lfc_cutoff & L2FC_CISPLATIN_47 >= lfc_cutoff ~
+        "Effects Cisplatin and 47 UP with Cisplatin opposite",
+      L2FC_CISPLATIN_Vehicle > -lfc_cutoff & L2FC_CISPLATIN_47 <= -lfc_cutoff ~
+        "Effects Cisplatin and 47 DOWN with Cisplatin opposite",
+      TRUE ~ NA
+    )
+  ) |>
+  dplyr::filter(!is.na(Group)) |>
+  mutate(
+    sort_val = case_when(
+      Group == "Effects Cisplatin UP with Cisplatin and 47 opposite" ~
+        L2FC_CISPLATIN_Vehicle * -1,
+      Group == "Effects Cisplatin DOWN with Cisplatin and 47 opposite" ~
+        L2FC_CISPLATIN_Vehicle,
+      Group == "Effects Cisplatin and 47 UP with Cisplatin opposite" ~
+        L2FC_CISPLATIN_47 * -1,
+      Group == "Effects Cisplatin and 47 DOWN with Cisplatin opposite" ~
+        L2FC_CISPLATIN_47,
+      TRUE ~ 0
+    )
+  ) |>
+  group_by(Group) |>
+  arrange(Group, sort_val) |>
+  gt() |>
+  cols_hide(columns = sort_val) |>
+  tab_header(
+    title = md(str_glue(
+      "**Differentially Expressed Genes Grouped by Comparison**"
+    )),
+    subtitle = "Log2 Fold Change across treatment groups compared to the control"
+  ) |>
+  tab_spanner(
+    label = "Treatment LFC",
+    columns = starts_with("L2FC")
+  ) |>
+  cols_label(
+    L2FC_CISPLATIN_47 = "Cisplatin and 47",
+    L2FC_CISPLATIN_Vehicle = "Cisplatin",
+    L2FC_CONTROL_47 = "47",
+    Gene = "Gene Symbol"
+  ) |>
+  fmt_number(
+    columns = starts_with("L2FC"),
+    decimals = 2
+  ) |>
+  data_color(
+    columns = starts_with("L2FC"),
+    fn = scales::col_bin(
+      palette = rev(brewer.pal(n = 6, "RdBu")),
+      domain = c(-5, 5),
+      bins = c(-Inf, -2, -1, -0.57, 0.57, 1, 2, Inf)
+    )
+  ) |>
+  opt_stylize(color = "gray", style = 1)
+
+gt_table
+gtsave(gt_table, "./results/general_table.html")
+
+# I also probably want a table of solely where the effects are in the same direction but where the magnitude of the cis.47 change is different by 0.58
